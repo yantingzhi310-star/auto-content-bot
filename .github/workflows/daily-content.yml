@@ -9,6 +9,8 @@ on:
 jobs:
   generate:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 允许推送代码到仓库
     steps:
       - uses: actions/checkout@v4
 
@@ -31,6 +33,8 @@ jobs:
         run: |
           git config --global user.name 'Content Bot'
           git config --global user.email 'bot@example.com'
+          mkdir -p output
           git add output/
-          git commit -m "每日内容 $(date +'%Y-%m-%d')" || echo "无需提交"
+          git diff --cached --quiet || git commit -m "每日内容 $(date +'%Y-%m-%d')"
+          git pull --rebase origin main
           git push
