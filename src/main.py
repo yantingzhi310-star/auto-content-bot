@@ -232,6 +232,79 @@ def send_feishu(text, title=None):
     return result
 
 
+def send_feishu_card(trending, content, date_cn):
+    """发送飞书卡片消息（结构化展示：热点 + TOP5 + 脚本 + 金句）"""
+    # 解析 AI 输出中的各个段落
+    sections = content.split("━━━━━━━━━━━━━━━━━━")
+    top5_text = ""
+    script_text = ""
+    quotes_text = ""
+
+    for section in sections:
+        s = section.strip()
+        if "TOP5" in s[:50]:
+            top5_text = s
+        elif "优选完整脚本" in s[:50]:
+            script_text = s
+        elif "封面金句" in s[:50]:
+            quotes_text = s
+
+    # 热点概览
+    hot_lines = []
+    if trending:
+        for platform, topics in trending.items():
+            names = [f"#{t.get('word', '')}" for t in topics[:5]]
+            hot_lines.append(f"**{platform}**\n" + " ".join(names))
+    hot_md = "\n".join(hot_lines) if hot_lines else "（暂无数据）"
+
+    elements = [
+        {"tag": "div", "text": {"tag": "lark_md", "content": f"**🔥 今日热点**\n{hot_md}"}},
+        {"tag": "hr"},
+    ]
+
+    if top5_text:
+        clean = top5_text.replace("# TOP5 选题推荐", "").replace("## ", "").strip()
+        if len(clean) > 1500:
+            clean = clean[:1500] + "\n..."
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**🎯 TOP5 选题推荐**\n{clean}"}})
+        elements.append({"tag": "hr"})
+
+    if script_text:
+        clean = script_text.replace("# 优选完整脚本", "").strip()
+        preview = clean[:500]
+        if len(clean) > 500:
+            preview += "\n...（完整脚本已保存至 GitHub）"
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**📜 优选脚本（节选）**\n{preview}"}})
+        elements.append({"tag": "hr"})
+
+    if quotes_text:
+        clean = quotes_text.replace("# 可做封面的金句", "").strip()
+        elements.append({"tag": "div", "text": {"tag": "lark_md", "content": f"**💡 封面金句**\n{clean}"}})
+        elements.append({"tag": "hr"})
+
+    elements.append({
+        "tag": "note",
+        "elements": [{"tag": "plain_text", "content": f"📎 完整内容已保存至 GitHub · {date_cn}"}],
+    })
+
+    payload = {
+        "msg_type": "interactive",
+        "card": {
+            "header": {
+                "title": {"tag": "plain_text", "content": f"📡 {date_cn} 热点选题推荐"},
+                "template": "blue",
+            },
+            "elements": elements,
+        },
+    }
+
+    resp = requests.post(FEISHU_WEBHOOK, json=payload, timeout=10)
+    result = resp.json()
+    if result.get("code") != 0:
+        print(f"  飞书推送警告: {result}")
+    return result
+
+
 # ─── 本地保存 ───
 
 def save_output(today, content, trending_data):
@@ -303,31 +376,12 @@ def main():
     # Step 3: 保存本地
     save_output(today, content, trending)
 
-    # Step 4: 推飞书
+    # Step 4: 推飞书（卡片消息，一条展示全部）
     print(">> 推送到飞书...")
     try:
         date_cn = datetime.now().strftime("%m月%d日")
-        # 消息1 - 热点速览
-        hot_summary = f"📡 {date_cn} 热点速报\n"
-        if trending:
-            for platform, topics in trending.items():
-                hot_summary += f"\n【{platform}】\n"
-                for t in topics[:5]:
-                    hot_summary += f"  #{t.get('rank','')} {t.get('word','')}\n"
-        else:
-            hot_summary += "\n  (今日热点数据获取中)"
-
-        send_feishu(hot_summary)
-        print("  消息1(热点速览) ✓")
-
-        # 消息2 - 选题推荐
-        # 从内容中提取前1000字作为摘要
-        summary = content[:1500]
-        if len(content) > 1500:
-            summary += "\n\n...(完整内容见本地文件)"
-        send_feishu(summary, title=f"🎬 {date_cn} · 选题推荐")
-        print("  消息2(选题推荐) ✓")
-
+        send_feishu_card(trending, content, date_cn)
+        print("  卡片消息 ✓")
     except Exception as e:
         print(f"  ❌ 飞书推送失败: {e}")
 
